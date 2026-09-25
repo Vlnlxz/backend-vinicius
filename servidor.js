@@ -38,14 +38,40 @@ return null ;
 // ------------------------------------------------------------
 // GET /treinos - lista todos os treinos
 // ------------------------------------------------------------
-app.get('/ treinos ', (req , res) => {
+app.get('/treinos', (req , res) => {
+    const busca = req.query.busca;
+    
+    if (busca) {
+        const treinosFiltrados = treinos.filter((t) => t.nome.toLowerCase().includes(busca.toLowerCase()));
+        return res.status(200).json(treinosFiltrados);
+    }
+
     res.status(200).json(treinos);
+});
+// ------------------------------------------------------------
+// GET /treinos/resumo - traz estatísticas gerais do diário
+// ------------------------------------------------------------
+app.get('/treinos/resumo', (req, res) => {
+    const total = treinos.length;
+    const minutos = treinos.reduce((soma, t) => soma + t.duracao, 0);
+    const media = total > 0 ? minutos / total : 0;
+
+    res.status(200).json({
+        total: total,
+        minutos: minutos,
+        media: media
+    });
 });
 // ------------------------------------------------------------
 // GET /treinos/:id - busca um treino pelo id (404 se nao existir)
 // ------------------------------------------------------------
 app.get('/treinos/:id', (req, res) => {
   const id = Number(req.params.id);
+  
+  if (Number.isNaN(id)) {
+    return res.status(400).json({ erro: 'ID inválido.' });
+  }
+
   const treino = treinos.find((t) => t.id === id);
   
   if (treino === undefined) {
