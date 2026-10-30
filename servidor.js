@@ -1,142 +1,145 @@
-// ============================================================
-// API do Diario de Treinos
-// Back-End I - CEEP Pedro Boaretto Neto
-// ============================================================
-// Este arquivo esta quase vazio DE PROPOSITO.
-// Hoje voce vai escrever as rotas, uma de cada vez, conferindo
-// no testes.http se cada uma responde o status certo.
-// O que cada rota deve fazer esta no README.md.
-// ============================================================
-
 const express = require('express');
+const { DatabaseSync } = require('node:sqlite');
+
 const app = express();
 
-// Faz o Express entender JSON no corpo das requisicoes
+// Faz o Express entender JSON no corpo das requisições
 app.use(express.json());
 
 // ------------------------------------------------------------
-// Os dados moram aqui, na memoria. Somem quando o servidor cai.
-// (Na Aula 03 isso vira banco de dados.)
+// Banco de dados (treinos.db)
 // ------------------------------------------------------------
-const treinos = [];
-let proximoId = 1;
+const db = new DatabaseSync('treinos.db');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS treinos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT NOT NULL,
+    duracao INTEGER NOT NULL
+  )
+`);
 
 // ------------------------------------------------------------
-// Validacao
-// Escreva a funcao validarTreino(corpo), que devolve a mensagem
-// de erro quando algo esta errado, ou null quando esta tudo certo.
+// Validação
 // ------------------------------------------------------------
 function validarTreino(corpo) {
-if (typeof corpo.nome !== 'string'  || corpo.nome.trim() === ''){
-return 'O campo nome e obrigatorio e deve ser um texto .';
+  if (typeof corpo.nome !== 'string' || corpo.nome.trim() === '') {
+    return 'O campo nome e obrigatorio e deve ser um texto.';
+  }
+  if (typeof corpo.duracao !== 'number' || corpo.duracao <= 0) {
+    return 'O campo duracao e obrigatorio e deve ser um numero maior que zero.';
+  }
+  return null;
 }
-if (typeof corpo.duracao !== 'number' || corpo.duracao <= 0) {
-return 'O campo duracao e obrigatorio e deve ser um numero maior que zero .';
-}
-return null ;
-}
+
 // ------------------------------------------------------------
+// Rotas da Aplicação
+// ------------------------------------------------------------
+
 // GET /treinos - lista todos os treinos
-// ------------------------------------------------------------
-app.get('/treinos', (req , res) => {
-    const busca = req.query.busca;
-    
-    if (busca) {
-        const treinosFiltrados = treinos.filter((t) => t.nome.toLowerCase().includes(busca.toLowerCase()));
-        return res.status(200).json(treinosFiltrados);
-    }
-
-    res.status(200).json(treinos);
+app.get('/treinos', (req, res) => {
+  const minimo = req.query.minimo;
+  let treinos;
+  if (minimo !== undefined) {
+    treinos = db
+      .prepare('SELECT * FROM treinos WHERE duracao >= ? ORDER BY duracao DESC')
+      .all(Number(minimo));
+  } else {
+    treinos = db.prepare('SELECT * FROM treinos ORDER BY duracao DESC').all();
+  }
+  res.status(200).json(treinos);
 });
-// ------------------------------------------------------------
-// GET /treinos/resumo - traz estatísticas gerais do diário
-// ------------------------------------------------------------
-app.get('/treinos/resumo', (req, res) => {
-    const total = treinos.length;
-    const minutos = treinos.reduce((soma, t) => soma + t.duracao, 0);
-    const media = total > 0 ? minutos / total : 0;
 
-    res.status(200).json({
-        total: total,
-        minutos: minutos,
-        media: media
-    });
+// GET /treinos/filtrar/nome - busca treinos por termo no nome
+app.get('/treinos/filtrar/nome', (req, res) => {
+  const termo = req.query.termo;
+  if (!termo || termo.trim() === '') {
+    return res.status(400).json({ erro: 'O parametro de busca "termo" e obrigatorio.' });
+  }
+  const resultados = db.prepare('SELECT * FROM treinos WHERE nome LIKE ?').all(`%${termo}%`);
+  res.status(200).json(resultados);
 });
-// ------------------------------------------------------------
-// GET /treinos/:id - busca um treino pelo id (404 se nao existir)
-// ------------------------------------------------------------
+
+// GET /treinos/filtrar/duracao - filtra treinos por duracao maxima
+app.get('/treinos/filtrar/duracao', (req, res) => {
+  const max = Number(req.query.max);
+  if (isNaN(max) || max <= 0) {
+    return res.status(400).json({ erro: 'O parametro "max" deve ser um numero maior que zero.' });
+  }
+  const resultados = db.prepare('SELECT * FROM treinos WHERE duracao <= ?').all(max);
+  res.status(200).json(resultados);
+});
+
+// GET /treinos/total - conta quantos treinos existem
+app.get('/treinos/total', (req, res) => {
+  const resultado = db.prepare('SELECT COUNT(*) AS total FROM treinos').get();
+  res.status(200).json(resultado);
+});
+
+// GET /treinos/:id - busca um treino pelo id
 app.get('/treinos/:id', (req, res) => {
   const id = Number(req.params.id);
-  
-  if (Number.isNaN(id)) {
-    return res.status(400).json({ erro: 'ID inválido.' });
-  }
-
-  const treino = treinos.find((t) => t.id === id);
-  
+  const treino = db.prepare('SELECT * FROM treinos WHERE id = ?').get(id);
   if (treino === undefined) {
-    return res.status(404).json({ erro: 'Treino não encontrado.' });
+    return res.status(404).json({ erro: 'Treino nao encontrado.' });
   }
-  
   res.status(200).json(treino);
 });
-// ------------------------------------------------------------
-// POST /treinos - cria um treino (400 se os dados forem invalidos)
-// ------------------------------------------------------------
+
+// POST /treinos - cria um treino
 app.post('/treinos', (req, res) => {
   const erro = validarTreino(req.body);
   if (erro !== null) {
     return res.status(400).json({ erro: erro });
   }
-  
-  const treino = {
-    id: proximoId,
-    nome: req.body.nome,
-    duracao: req.body.duracao
-  };
-  
-  proximoId = proximoId + 1;
-  treinos.push(treino);
-  
-  res.status(201).json(treino);
+
+  const resultado = db
+    .prepare('INSERT INTO treinos (nome, duracao) VALUES (?, ?)')
+    .run(req.body.nome, req.body.duracao);
+
+  const novo = db
+    .prepare('SELECT * FROM treinos WHERE id = ?')
+    .get(resultado.lastInsertRowid);
+
+  res.status(201).json(novo);
 });
-// ------------------------------------------------------------
+
 // PUT /treinos/:id - substitui um treino
-// ------------------------------------------------------------
 app.put('/treinos/:id', (req, res) => {
   const id = Number(req.params.id);
-  const treino = treinos.find((t) => t.id === id);
-  
+  const treino = db.prepare('SELECT * FROM treinos WHERE id = ?').get(id);
   if (treino === undefined) {
-    return res.status(404).json({ erro: 'Treino não encontrado.' });
+    return res.status(404).json({ erro: 'Treino nao encontrado.' });
   }
-  
+
   const erro = validarTreino(req.body);
   if (erro !== null) {
     return res.status(400).json({ erro: erro });
   }
-  
-  treino.nome = req.body.nome;
-  treino.duracao = req.body.duracao;
-  
-  res.status(200).json(treino);
+
+  db.prepare('UPDATE treinos SET nome = ?, duracao = ? WHERE id = ?')
+    .run(req.body.nome, req.body.duracao, id);
+
+  const atualizado = db.prepare('SELECT * FROM treinos WHERE id = ?').get(id);
+  res.status(200).json(atualizado);
 });
-// ------------------------------------------------------------
+
 // DELETE /treinos/:id - remove um treino
-// ------------------------------------------------------------
 app.delete('/treinos/:id', (req, res) => {
   const id = Number(req.params.id);
-  const posicao = treinos.findIndex((t) => t.id === id);
-  
-  if (posicao === -1) {
-    return res.status(404).json({ erro: 'Treino não encontrado.' });
+  const treino = db.prepare('SELECT * FROM treinos WHERE id = ?').get(id);
+  if (treino === undefined) {
+    return res.status(404).json({ erro: 'Treino nao encontrado.' });
   }
-  
-  treinos.splice(posicao, 1);
+
+  db.prepare('DELETE FROM treinos WHERE id = ?').run(id);
   res.status(204).end();
 });
+
+// ------------------------------------------------------------
+// Inicialização do Servidor
 // ------------------------------------------------------------
 const PORTA = 3000;
 app.listen(PORTA, () => {
-    console.log(`Servidor rodando em http://localhost:${PORTA}`);
+  console.log(`Servidor rodando em http://localhost:${PORTA}`);
 });
