@@ -1,0 +1,1 @@
+Vinicius, tua nota de repositório foi 0,8 de 2,5. O treinosController.js e o treinosRepository.js da aula 4 são idênticos aos de outro repositório da turma, enviados antes dos teus. Aula copiada vale metade do ponto da aula.
